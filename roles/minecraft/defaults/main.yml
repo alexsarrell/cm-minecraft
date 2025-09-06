@@ -1,0 +1,11 @@
+minecraft_version: "1.20.1"
+server_dir: "/opt/minecraft"
+mods_src: "{{ lookup('env','MC_MODS') | default('mods', true) }}"
+server_port: 25565
+xms: 1G
+xmx: 2G
+versions_dir: "{{ server_dir }}/versions"
+version_dir: "{{ versions_dir }}/{{ minecraft_version }}"
+current_link: "{{ server_dir }}/current"
+service_name: minecraft
+clean_build: false

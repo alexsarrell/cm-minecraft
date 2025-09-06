@@ -1,0 +1,6 @@
+/.idea/.gitignore
+/fetched_logs/latest.log
+/.idea/misc.xml
+/.idea/modules.xml
+/.claude/settings.local.json
+/.idea/vcs.xml

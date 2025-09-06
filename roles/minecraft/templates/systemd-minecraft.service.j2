@@ -1,0 +1,23 @@
+[Unit]
+Description=Minecraft Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=forking
+WorkingDirectory={{ current_link }}
+User={{ ansible_user | default('minecraft') }}
+Group={{ ansible_user | default('minecraft') }}
+KillMode=control-group
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+SuccessExitStatus=0 1
+ExecStart=/usr/bin/screen -DmS minecraft /usr/bin/java -Xms{{ xms }} -Xmx{{ xmx }} -jar server.jar nogui
+TimeoutStopSec=120
+ExecStop=/usr/bin/screen -S minecraft -p 0 -X stuff "stop^M"
+ExecStop=/usr/bin/screen -S minecraft -X quit
+
+[Install]
+WantedBy=multi-user.target
