@@ -110,40 +110,134 @@
         url: https://launchermeta.mojang.com/mc/game/version_manifest.json
         dest: /tmp/version_manifest.json
         mode: '0644'
+      when: loader | default('vanilla') == 'vanilla'
 
     - name: Load version manifest
       slurp:
         src: /tmp/version_manifest.json
       register: manifest_raw
+      when: loader | default('vanilla') == 'vanilla'
 
     - name: Parse manifest JSON
       set_fact:
         manifest: "{{ manifest_raw['content'] | b64decode | from_json }}"
+      when: loader | default('vanilla') == 'vanilla'
 
     - name: Get version URL for specified version
       set_fact:
         version_url: "{{ (manifest.versions | selectattr('id','equalto', minecraft_version) | list | first).url }}"
+      when: loader | default('vanilla') == 'vanilla'
 
     - name: Download version details
       get_url:
         url: "{{ version_url }}"
         dest: /tmp/mc_version.json
         mode: '0644'
+      when: loader | default('vanilla') == 'vanilla'
 
     - name: Load version details
       slurp:
         src: /tmp/mc_version.json
       register: version_raw
+      when: loader | default('vanilla') == 'vanilla'
 
     - name: Parse version JSON
       set_fact:
         version_manifest: "{{ version_raw['content'] | b64decode | from_json }}"
+      when: loader | default('vanilla') == 'vanilla'
 
-    - name: Download server.jar for version
+    - name: Download server.jar for version (vanilla)
       get_url:
         url: "{{ version_manifest.downloads.server.url }}"
         dest: "{{ version_dir }}/server.jar"
         mode: '0755'
+      when: loader | default('vanilla') == 'vanilla'
+
+    - name: Ensure Fabric installer URL provided
+      fail:
+        msg: "Set fabric_installer_url to the Fabric installer .jar URL"
+      when: loader == 'fabric' and (fabric_installer_url is not defined or fabric_installer_url | length == 0)
+
+    - name: Install Fabric server
+      when: loader == 'fabric'
+      block:
+        - name: Download Fabric installer
+          get_url:
+            url: "{{ fabric_installer_url }}"
+            dest: "{{ version_dir }}/fabric-installer.jar"
+            mode: '0755'
+        - name: Run Fabric installer
+          command: 
+            cmd: "/usr/bin/java -jar fabric-installer.jar server -mcversion {{ minecraft_version }} -downloadMinecraft -dir {{ version_dir }} -noprofile"
+            chdir: "{{ version_dir }}"
+        - name: Link server.jar to Fabric launcher
+          file:
+            src: "{{ version_dir }}/fabric-server-launch.jar"
+            dest: "{{ version_dir }}/server.jar"
+            state: link
+            force: true
+
+    - name: Ensure Forge installer URL provided
+      fail:
+        msg: "Set forge_installer_url to the Forge installer .jar URL"
+      when: loader == 'forge' and (forge_installer_url is not defined or forge_installer_url | length == 0)
+
+    - name: Install Forge server
+      when: loader == 'forge'
+      block:
+        - name: Download Forge installer
+          get_url:
+            url: "{{ forge_installer_url }}"
+            dest: "{{ version_dir }}/forge-installer.jar"
+            mode: '0755'
+        - name: Run Forge installer
+          command:
+            cmd: "/usr/bin/java -jar forge-installer.jar --installServer"
+            chdir: "{{ version_dir }}"
+        - name: Find Forge server jar
+          find:
+            paths: "{{ version_dir }}"
+            patterns: "*forge*server*.jar"
+            file_type: file
+          register: forge_server_jar
+        - name: Link server.jar to Forge jar
+          file:
+            src: "{{ forge_server_jar.files[0].path }}"
+            dest: "{{ version_dir }}/server.jar"
+            state: link
+            force: true
+          when: forge_server_jar.matched | default(0) | int > 0
+
+    - name: Ensure NeoForge installer URL provided
+      fail:
+        msg: "Set neoforge_installer_url to the NeoForge installer .jar URL"
+      when: loader == 'neoforge' and (neoforge_installer_url is not defined or neoforge_installer_url | length == 0)
+
+    - name: Install NeoForge server
+      when: loader == 'neoforge'
+      block:
+        - name: Download NeoForge installer
+          get_url:
+            url: "{{ neoforge_installer_url }}"
+            dest: "{{ version_dir }}/neoforge-installer.jar"
+            mode: '0755'
+        - name: Run NeoForge installer
+          command:
+            cmd: "/usr/bin/java -jar neoforge-installer.jar --installServer"
+            chdir: "{{ version_dir }}"
+        - name: Find NeoForge server jar
+          find:
+            paths: "{{ version_dir }}"
+            patterns: "*neoforge*server*.jar"
+            file_type: file
+          register: neoforge_server_jar
+        - name: Link server.jar to NeoForge jar
+          file:
+            src: "{{ neoforge_server_jar.files[0].path }}"
+            dest: "{{ version_dir }}/server.jar"
+            state: link
+            force: true
+          when: neoforge_server_jar.matched | default(0) | int > 0
 
     - name: Accept EULA for this version
       template:
@@ -215,6 +309,10 @@
         delay: 1
         timeout: 300
 
+    - name: Grace period before scanning logs
+      pause:
+        seconds: "{{ post_start_grace }}"
+
     - name: Healthcheck - check latest logs for errors
       shell: "grep -E -m1 -q 'Exception|ERROR|FATAL' {{ current_link }}/logs/latest.log"
       register: log_errors_new
@@ -281,6 +379,10 @@
             state: present
             delay: 1
             timeout: 300
+
+        - name: Grace period before scanning logs (restart)
+          pause:
+            seconds: "{{ post_start_grace }}"
 
         - name: Check logs for errors after restart
           shell: "grep -E -m1 -q 'Exception|ERROR|FATAL' {{ current_link }}/logs/latest.log"
