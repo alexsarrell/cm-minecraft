@@ -63,11 +63,19 @@
       ignore_errors: true
       failed_when: false
 
+    - name: Check if any minecraft processes still running
+      shell: |
+        pgrep -f "SCREEN -DmS minecraft|java.*-jar server.jar" || true
+      register: mc_procs
+      changed_when: false
+      failed_when: false
+
     - name: Wait for old process to release world lock
       wait_for:
         path: "{{ version_dir }}/world/session.lock"
         state: absent
         timeout: 30
+      when: mc_procs.stdout | trim != ""
       ignore_errors: true
 
     - name: Force kill lingering screen/java if lock remains
@@ -78,10 +86,10 @@
         pgrep -f "java.*-jar server.jar" | xargs -r kill -TERM
         sleep 2
         pgrep -f "java.*-jar server.jar" | xargs -r kill -KILL
-      when: ansible_facts.os_family is defined
+      when: mc_procs.stdout | trim != ""
       ignore_errors: true
 
-    - name: Remove stale session.lock if processes are gone
+    - name: Remove stale session.lock
       file:
         path: "{{ version_dir }}/world/session.lock"
         state: absent
