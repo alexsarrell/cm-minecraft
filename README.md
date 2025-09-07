@@ -9,14 +9,21 @@ inventory/
 playbook.yml           # Entry playbook
 roles/
   minecraft/
-    defaults/main.yml  # Tunables (version, paths, memory, port)
-    tasks/main.yml     # Version-aware deploy logic
+    defaults/
+      main.yml         # Tunables (version, paths, memory, port)
+    tasks/
+      main.yml         # Orchestrator importing task files
+      setup_env.yml    # Facts, env, change detection
+      deploy_version.yml
+      deploy_mods.yml
+      install_loaders.yml
     templates/
       eula.txt.j2
       systemd-minecraft.service.j2
       server.properties.j2
       dotenv.j2
 mods/                  # Optional: local mods to sync (default path)
+fetched_logs/          # Latest logs fetched on failures
 ```
 
 ## Prerequisites
