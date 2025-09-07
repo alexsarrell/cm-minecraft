@@ -5,7 +5,7 @@ Opinionated Ansible playbook and role to deploy and operate a Minecraft server o
 ## Repository layout
 ```
 inventory/
-  hosts.ini            # Your Ansible inventory
+  hosts.ini            # Ansible inventory
 playbook.yml           # Entry playbook
 roles/
   minecraft/

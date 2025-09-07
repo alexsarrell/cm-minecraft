@@ -56,49 +56,10 @@
         path: "{{ current_link }}"
       register: current_link_stat
 
-    - name: Check current version file exists
-      stat:
-        path: "{{ current_link }}/version.txt"
-      register: current_version_stat
-      when: current_link_stat.stat.islnk | default(false)
-
-    - name: Read current version file
-      slurp:
-        src: "{{ current_link }}/version.txt"
-      register: current_version_raw
-      when: current_version_stat.stat.exists | default(false)
-
-    - name: Parse current version value
+    - name: Set env path
       set_fact:
-        current_version: >-
-          {{ (current_version_raw.content | default('') | b64decode | trim)
-             if (current_version_raw is defined and current_version_raw is not failed)
-             else '' }}
-
-    - name: Compute version_changed and env path
-      set_fact:
-        version_changed: "{{ current_version | default('') != minecraft_version }}"
         env_path: "{{ current_link }}/.env"
 
-- name: Check loader.txt exists
-  stat:
-    path: "{{ current_link }}/loader.txt"
-  register: current_loader_stat
-  when: current_link_stat.stat.islnk | default(false)
-
-- name: Read current loader file
-  slurp:
-    src: "{{ current_link }}/loader.txt"
-  register: current_loader_raw
-  when: current_loader_stat.stat.exists | default(false)
-
-- name: Parse current loader value
-  set_fact:
-    current_loader: "{{ (current_loader_raw.content | default('') | b64decode | trim) if (current_loader_raw is defined and current_loader_raw is not failed) else '' }}"
-
-- name: Compute loader_changed
-  set_fact:
-    loader_changed: "{{ current_loader | default('') != loader }}"
 
 - name: Check .env exists
   stat:
@@ -121,8 +82,11 @@
   set_fact:
     current_version_from_env: "{{ (env_kv | default({})).get('MINECRAFT_VERSION','') }}"
     current_loader_from_env: "{{ (env_kv | default({})).get('LOADER','') }}"
+    current_loader_version_from_env: "{{ (env_kv | default({})).get('LOADER_VERSION','') }}"
+    current_java_bin_from_env: "{{ (env_kv | default({})).get('JAVA_BIN','') }}"
 
-- name: Decide changes based on .env and current files
+- name: Decide changes based on .env only
   set_fact:
-    version_changed: "{{ (current_version_from_env or (current_version | default(''))) != minecraft_version }}"
-    loader_changed: "{{ (current_loader_from_env or (current_loader | default(''))) != loader }}"
+    version_changed: "{{ (current_version_from_env | default('')) != minecraft_version }}"
+    loader_changed: "{{ (current_loader_from_env | default('')) != loader }}"
+    loader_version_changed: "{{ (current_loader_version_from_env | default('')) != (loader_version | default('')) }}"

@@ -5,18 +5,27 @@
 - import_tasks: deploy_mods.yml
   when: not (version_changed or loader_changed)
 
+- name: Ensure service enabled
+  systemd:
+    name: "{{ service_name }}"
+    enabled: true
+
 - name: Reload systemd (always)
   systemd:
     daemon_reload: true
 
-- name: Restart service (always)
+- name: Restart service (single)
   systemd:
     name: "{{ service_name }}"
     state: restarted
     no_block: true
 
+- name: Initial delay before healthcheck
+  pause:
+    seconds: "{{ post_start_grace | int }}"
+
 - block:
-    - name: Healthcheck - curl until ready (always)
+    - name: Healthcheck - curl until ready
       shell: 'curl -s -o /dev/null -w "%{http_code}" "http://{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ server_port }}"'
       register: hc_ready_always
       delegate_to: localhost
