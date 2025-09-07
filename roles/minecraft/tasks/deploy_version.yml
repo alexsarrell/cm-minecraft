@@ -1,0 +1,153 @@
+---
+# tasks/deploy_version.yml
+- name: Deploy new Minecraft version when changed or clean_build
+  block:
+    - name: Stop service if running
+      systemd:
+        name: "{{ service_name }}"
+        state: stopped
+      ignore_errors: true
+
+    - name: Stop lingering processes and remove lock (non-blocking)
+      block:
+        - shell: pgrep -f "SCREEN -S minecraft|SCREEN -DmS minecraft|java" || true
+          register: mc_procs
+          changed_when: false
+          failed_when: false
+        - shell: |
+            pgrep -f "SCREEN -S minecraft|SCREEN -DmS minecraft" | xargs -r kill -TERM
+            pgrep -f "java" | xargs -r kill -TERM
+            sleep 2
+            pgrep -f "SCREEN -S minecraft|SCREEN -DmS minecraft" | xargs -r kill -KILL
+            pgrep -f "java" | xargs -r kill -KILL
+          when: mc_procs.stdout | trim != ""
+          changed_when: true
+          failed_when: false
+        - file:
+            path: "{{ current_link }}/world/session.lock"
+            state: absent
+          ignore_errors: true
+
+    - name: Create version directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ versions_dir }}/{{ minecraft_version }}"
+        - "{{ versions_dir }}/{{ minecraft_version }}/mods"
+        - "{{ versions_dir }}/{{ minecraft_version }}/logs"
+
+    - name: Download and parse vanilla version manifest
+      block:
+        - name: Download versions index
+          get_url:
+            url: https://launchermeta.mojang.com/mc/game/version_manifest.json
+            dest: /tmp/version_manifest.json
+        - name: Read versions index
+          slurp:
+            src: /tmp/version_manifest.json
+          register: manifest_raw
+        - name: Parse versions index
+          set_fact:
+            manifest: "{{ manifest_raw['content'] | b64decode | from_json }}"
+        - name: Select target version URL
+          set_fact:
+            version_url: >-
+              {{ (manifest.versions
+                  | selectattr('id','equalto', minecraft_version)
+                  | list
+                  | first).url }}
+        - name: Download selected version metadata
+          get_url:
+            url: "{{ version_url }}"
+            dest: /tmp/mc_version.json
+        - name: Read selected version metadata
+          slurp:
+            src: /tmp/mc_version.json
+          register: version_raw
+        - name: Parse selected version metadata
+          set_fact:
+            version_manifest: "{{ version_raw['content'] | b64decode | from_json }}"
+        - name: Download vanilla server.jar
+          get_url:
+            url: "{{ version_manifest.downloads.server.url }}"
+            dest: "{{ versions_dir }}/{{ minecraft_version }}/server.jar"
+            mode: '0755'
+      when: loader | default('vanilla') == 'vanilla'
+
+    - name: Install Fabric/Forge/NeoForge
+      include_tasks: tasks/install_loaders.yml
+
+    - name: Accept EULA and configure
+      template:
+        src: eula.txt.j2
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/eula.txt"
+
+    - name: Render .env for this version
+      template:
+        src: dotenv.j2
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/.env"
+        mode: '0644'
+
+    - name: Render server.properties
+      template:
+        src: server.properties.j2
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/server.properties"
+
+    - name: Write version.txt
+      copy:
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/version.txt"
+        content: "{{ minecraft_version }}\n"
+    - name: Write loader.txt
+      copy:
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/loader.txt"
+        content: "{{ loader }}\n"
+
+    - name: Create/Update service
+      template:
+        src: systemd-minecraft.service.j2
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Switch current symlink
+      file:
+        src: "{{ versions_dir }}/{{ minecraft_version }}"
+        dest: "{{ current_link }}"
+        state: link
+        force: true
+
+    - name: Start/restart service
+      systemd:
+        name: "{{ service_name }}"
+        state: restarted
+        enabled: true
+        no_block: true
+
+    - name: Healthchecks
+      block:
+        - name: Healthcheck - curl until ready from controller
+          shell: 'curl -s -o /dev/null -w "%{http_code}" "http://{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ server_port }}"'
+          register: hc_ready
+          delegate_to: localhost
+          become: false
+          retries: "{{ healthcheck_retries | default(((healthcheck_total_timeout | int) // (healthcheck_interval | int)) | int) }}"
+          delay: "{{ healthcheck_interval | int }}"
+          failed_when: false
+          until: hc_ready.rc == 52
+      rescue:
+        - name: Ensure fetched_logs directory exists locally
+          file:
+            path: "./fetched_logs"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+          become: false
+        - fetch:
+            src: "{{ current_link }}/logs/latest.log"
+            dest: "./fetched_logs/latest-{{ ansible_date_time.iso8601_basic_short }}.log"
+            flat: true
+          ignore_errors: true
+        - fail: { msg: "Startup failed, logs in ./fetched_logs" }

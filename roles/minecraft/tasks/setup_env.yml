@@ -1,0 +1,128 @@
+---
+# tasks/setup_env.yml
+- name: Set facts from env as fallback
+  set_fact:
+    minecraft_version: "{{ minecraft_version
+      | default(lookup('env','MC_VERSION'))
+      | default('1.20.1', true) }}"
+    server_dir: "{{ server_dir
+      | default(lookup('env','MC_SERVER_DIR'))
+      | default('/opt/minecraft', true) }}"
+    mods_src: "{{ mods_src
+      | default(lookup('env','MC_MODS'))
+      | default('./mods', true) }}"
+
+- name: Compute Java package names
+  set_fact:
+    java_pkg_deb: "{{ java_pkg_deb }}"
+    java_pkg_rpm: "{{ java_pkg_rpm }}"
+
+- name: Ensure required packages are installed (Debian/Ubuntu)
+  apt:
+    name:
+      - "{{ java_pkg_deb }}"
+      - screen
+      - curl
+      - unzip
+      - rsync
+    state: present
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Ensure required packages are installed (RHEL/CentOS)
+  yum:
+    name:
+      - "{{ java_pkg_rpm }}"
+      - screen
+      - curl
+      - unzip
+      - rsync
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Create base directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ server_dir }}"
+    - "{{ versions_dir }}"
+
+- name: Determine current deployed version
+  block:
+    - name: Check current symlink exists
+      stat:
+        path: "{{ current_link }}"
+      register: current_link_stat
+
+    - name: Check current version file exists
+      stat:
+        path: "{{ current_link }}/version.txt"
+      register: current_version_stat
+      when: current_link_stat.stat.islnk | default(false)
+
+    - name: Read current version file
+      slurp:
+        src: "{{ current_link }}/version.txt"
+      register: current_version_raw
+      when: current_version_stat.stat.exists | default(false)
+
+    - name: Parse current version value
+      set_fact:
+        current_version: >-
+          {{ (current_version_raw.content | default('') | b64decode | trim)
+             if (current_version_raw is defined and current_version_raw is not failed)
+             else '' }}
+
+    - name: Compute version_changed and env path
+      set_fact:
+        version_changed: "{{ current_version | default('') != minecraft_version }}"
+        env_path: "{{ current_link }}/.env"
+
+- name: Check loader.txt exists
+  stat:
+    path: "{{ current_link }}/loader.txt"
+  register: current_loader_stat
+  when: current_link_stat.stat.islnk | default(false)
+
+- name: Read current loader file
+  slurp:
+    src: "{{ current_link }}/loader.txt"
+  register: current_loader_raw
+  when: current_loader_stat.stat.exists | default(false)
+
+- name: Parse current loader value
+  set_fact:
+    current_loader: "{{ (current_loader_raw.content | default('') | b64decode | trim) if (current_loader_raw is defined and current_loader_raw is not failed) else '' }}"
+
+- name: Compute loader_changed
+  set_fact:
+    loader_changed: "{{ current_loader | default('') != loader }}"
+
+- name: Check .env exists
+  stat:
+    path: "{{ env_path }}"
+  register: env_stat
+  when: current_link_stat.stat.islnk | default(false)
+
+- name: Read .env file
+  slurp:
+    src: "{{ env_path }}"
+  register: env_raw
+  when: env_stat.stat.exists | default(false)
+
+- name: Parse .env into key/value map
+  set_fact:
+    env_kv: "{{ dict((env_raw.content | b64decode).splitlines() | map('split','=',1) | list) if (env_raw is defined and env_raw is not failed) else {} }}"
+  when: env_stat.stat.exists | default(false)
+
+- name: Extract current values from .env
+  set_fact:
+    current_version_from_env: "{{ (env_kv | default({})).get('MINECRAFT_VERSION','') }}"
+    current_loader_from_env: "{{ (env_kv | default({})).get('LOADER','') }}"
+
+- name: Decide changes based on .env and current files
+  set_fact:
+    version_changed: "{{ (current_version_from_env or (current_version | default(''))) != minecraft_version }}"
+    loader_changed: "{{ (current_loader_from_env or (current_loader | default(''))) != loader }}"

@@ -4,17 +4,21 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=forking
+Type=simple
 WorkingDirectory={{ current_link }}
+EnvironmentFile=-{{ current_link }}/.env
+ExecStartPre=-/usr/bin/screen -S minecraft -X quit
 User={{ ansible_user | default('minecraft') }}
 Group={{ ansible_user | default('minecraft') }}
-KillMode=control-group
-KillSignal=SIGINT
 Restart=on-failure
 RestartSec=5
-TimeoutStartSec=300
-SuccessExitStatus=0 1
-ExecStart=/usr/bin/screen -DmS minecraft /usr/bin/java -Xms{{ xms }} -Xmx{{ xmx }} -jar server.jar nogui
+{% if loader == 'neoforge' or loader == 'forge' %}
+ExecStart=/bin/bash -lc '/usr/bin/screen -DmS minecraft /bin/bash run.sh nogui'
+{% elif loader == 'fabric' %}
+ExecStart=/bin/bash -lc '/usr/bin/screen -DmS minecraft $JAVA_BIN -Xms$XMS -Xmx$XMX -jar fabric-server-launch.jar nogui'
+{% else %}
+ExecStart=/bin/bash -lc '/usr/bin/screen -DmS minecraft $JAVA_BIN -Xms$XMS -Xmx$XMX -jar server.jar nogui'
+{% endif %}
 TimeoutStopSec=120
 ExecStop=/usr/bin/screen -S minecraft -p 0 -X stuff "stop^M"
 ExecStop=/usr/bin/screen -S minecraft -X quit

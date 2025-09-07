@@ -1,0 +1,83 @@
+---
+# tasks/deploy_mods.yml
+- name: Mods-only path (always restart and healthcheck)
+  block:
+    - name: Ensure mods directory exists
+      file:
+        path: "{{ current_link }}/mods"
+        state: directory
+        mode: '0755'
+
+    - name: Check local mods source exists
+      stat:
+        path: "{{ mods_src }}"
+      register: local_mods_stat_mods
+      delegate_to: localhost
+      become: false
+
+    - name: Sync mods from controller to server
+      synchronize:
+        src: "{{ mods_src }}/"
+        dest: "{{ current_link }}/mods/"
+        delete: true
+        rsync_opts: ['--itemize-changes','--human-readable']
+        use_ssh_args: true
+      delegate_to: localhost
+      become: false
+      register: mods_sync
+      when: local_mods_stat_mods.stat.isdir
+
+    - name: Show mods sync changes
+      debug: { var: mods_sync.stdout_lines }
+      when: mods_sync is defined
+
+    - name: Ensure .env reflects current vars
+      template:
+        src: dotenv.j2
+        dest: "{{ current_link }}/.env"
+        mode: '0644'
+      register: dotenv_mods
+
+
+    - name: Render systemd unit (mods-only)
+      template:
+        src: systemd-minecraft.service.j2
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+        mode: '0644'
+      register: unit_template_mods
+
+    - name: Reload systemd if unit or env changed (mods-only)
+      systemd:
+        daemon_reload: true
+      when: (unit_template_mods is defined and unit_template_mods.changed) or (dotenv_mods is defined and dotenv_mods.changed)
+
+    - name: Restart service
+      systemd:
+        name: "{{ service_name }}"
+        state: restarted
+        no_block: true
+
+    - block:
+        - name: Healthcheck - curl until ready from controller
+          shell: 'curl -s -o /dev/null -w "%{http_code}" "http://{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:{{ server_port }}"'
+          register: hc_ready_restart
+          delegate_to: localhost
+          become: false
+          retries: "{{ healthcheck_retries | default(((healthcheck_total_timeout | int) // (healthcheck_interval | int)) | int) }}"
+          delay: "{{ healthcheck_interval | int }}"
+          failed_when: false
+          until: hc_ready_restart.rc == 52
+      rescue:
+        - name: Ensure fetched_logs directory exists locally
+          file:
+            path: "./fetched_logs"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+          become: false
+        - fetch:
+            src: "{{ current_link }}/logs/latest.log"
+            dest: "./fetched_logs/latest-{{ ansible_date_time.iso8601_basic_short }}.log"
+            flat: true
+          ignore_errors: true
+        - fail: { msg: "Restart mods-only failed, logs in ./fetched_logs" }

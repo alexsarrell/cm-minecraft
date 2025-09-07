@@ -4,14 +4,21 @@ mods_src: "{{ lookup('env','MC_MODS') | default('mods', true) }}"
 server_port: 25565
 xms: 1G
 xmx: 8G
+java_version: 21
+java_pkg_deb: "openjdk-{{ java_version }}-jre-headless"
+java_pkg_rpm: "java-{{ java_version }}-openjdk"
+java_bin_path: "/usr/lib/jvm/java-{{ java_version }}-openjdk/bin/java"
 versions_dir: "{{ server_dir }}/versions"
 version_dir: "{{ versions_dir }}/{{ minecraft_version }}"
 current_link: "{{ server_dir }}/current"
 service_name: minecraft
-clean_build: false
+clean_build: false # deprecated; ignored
 loader: neoforge
 loader_version: "21.1.208"
-post_start_grace: 60
+post_start_grace: 0
+healthcheck_retries: 180
+healthcheck_interval: 1
+healthcheck_total_timeout: 30000
 fabric_installer_url: "https://maven.fabricmc.net/net/fabricmc/fabric-installer/{{ loader_version }}/fabric-installer-{{ loader_version }}.jar"
 forge_installer_url: "https://maven.minecraftforge.net/net/minecraftforge/forge/{{ minecraft_version }}-{{ loader_version }}/forge-{{ minecraft_version }}-{{ loader_version }}-installer.jar"
 neoforge_installer_url: "https://maven.neoforged.net/releases/net/neoforged/neoforge/{{ loader_version }}/neoforge-{{ loader_version }}-installer.jar"

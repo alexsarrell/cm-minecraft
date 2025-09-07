@@ -1,0 +1,86 @@
+---
+- name: Ensure Fabric installer URL provided
+  fail:
+    msg: "Set fabric_installer_url to the Fabric installer .jar URL"
+  when: loader == 'fabric' and (fabric_installer_url is not defined or fabric_installer_url | length == 0)
+
+- name: Install Fabric server (download installer, run, link launcher)
+  when: loader == 'fabric'
+  block:
+    - name: Download Fabric installer
+      get_url:
+        url: "{{ fabric_installer_url }}"
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/fabric-installer.jar"
+        mode: '0755'
+    - name: Run Fabric installer
+      command:
+        cmd: "/usr/bin/java -jar fabric-installer.jar server -mcversion {{ minecraft_version }} -downloadMinecraft -dir {{ versions_dir }}/{{ minecraft_version }} -noprofile"
+        chdir: "{{ versions_dir }}/{{ minecraft_version }}"
+    - name: Link server.jar to Fabric launcher
+      file:
+        src: "{{ versions_dir }}/{{ minecraft_version }}/fabric-server-launch.jar"
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/server.jar"
+        state: link
+        force: true
+
+- name: Ensure Forge installer URL provided
+  fail:
+    msg: "Set forge_installer_url to the Forge installer .jar URL"
+  when: loader == 'forge' and (forge_installer_url is not defined or forge_installer_url | length == 0)
+
+- name: Install Forge server (download installer, run, link jar)
+  when: loader == 'forge'
+  block:
+    - name: Download Forge installer
+      get_url:
+        url: "{{ forge_installer_url }}"
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/forge-installer.jar"
+        mode: '0755'
+    - name: Run Forge installer
+      command:
+        cmd: "/usr/bin/java -jar forge-installer.jar --installServer"
+        chdir: "{{ versions_dir }}/{{ minecraft_version }}"
+    - name: Find Forge server jar
+      find:
+        paths: "{{ versions_dir }}/{{ minecraft_version }}"
+        patterns: "*forge*server*.jar"
+        file_type: file
+      register: forge_server_jar
+    - name: Link server.jar to Forge jar
+      file:
+        src: "{{ forge_server_jar.files[0].path }}"
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/server.jar"
+        state: link
+        force: true
+      when: forge_server_jar.matched | default(0) | int > 0
+
+- name: Ensure NeoForge installer URL provided
+  fail:
+    msg: "Set neoforge_installer_url to the NeoForge installer .jar URL"
+  when: loader == 'neoforge' and (neoforge_installer_url is not defined or neoforge_installer_url | length == 0)
+
+- name: Install NeoForge server (download installer, run, link jar)
+  when: loader == 'neoforge'
+  block:
+    - name: Download NeoForge installer
+      get_url:
+        url: "{{ neoforge_installer_url }}"
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/neoforge-installer.jar"
+        mode: '0755'
+    - name: Run NeoForge installer
+      command:
+        cmd: "/usr/bin/java -jar neoforge-installer.jar --installServer"
+        chdir: "{{ versions_dir }}/{{ minecraft_version }}"
+    - name: Find NeoForge server jar
+      find:
+        paths: "{{ versions_dir }}/{{ minecraft_version }}"
+        patterns: "*neoforge*server*.jar"
+        file_type: file
+      register: neoforge_server_jar
+    - name: Link server.jar to NeoForge jar
+      file:
+        src: "{{ neoforge_server_jar.files[0].path }}"
+        dest: "{{ versions_dir }}/{{ minecraft_version }}/server.jar"
+        state: link
+        force: true
+      when: neoforge_server_jar.matched | default(0) | int > 0
